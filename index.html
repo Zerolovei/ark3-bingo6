@@ -683,6 +683,44 @@ button:active {
     border-radius: 4px;
   }
 }
+
+/* ネギ配達：検索欄の右に独立した丸ボタン */
+#negiDeliveryButton{
+  width:84px;height:84px;flex:0 0 84px;border-radius:50%;
+  border:3px solid #d7ff9b;color:#fff;font-weight:900;font-size:15px;
+  line-height:1.2;text-shadow:0 2px 3px #246a21;
+  background:linear-gradient(145deg,#84dc28,#169a5a);
+  box-shadow:0 4px 12px #0007, inset 0 2px 6px #ffffff75;
+  cursor:pointer;white-space:nowrap;
+}
+#negiDeliveryButton:active{transform:scale(.94)}
+/* ネギ配達で開いたマスはオレンジ色で固定（再クリック不可） */
+.cell.negiDelivered,.cell.negiDelivered.checked,.cell.negiDelivered.last,
+.cell.negiDelivered.reach,.cell.negiDelivered.bingo-cell,.cell.negiDelivered.search-hit{
+  background:#ff941f!important;color:#4b2300!important;
+  border:2px solid #ffe8a1!important;
+  box-shadow:0 0 10px 3px #ffb347!important;
+}
+.cell.negiDeliveryPulse{animation:negiDeliveryPulse 1s ease-in-out 3!important}
+@keyframes negiDeliveryPulse{50%{filter:brightness(1.8);transform:scale(1.1)}}
+</style>
+
+<style>
+#surpriseOverlay{position:fixed;inset:0;z-index:99999;background:#000;display:none;align-items:center;justify-content:center;flex-direction:column}
+#surpriseOverlay.active{display:flex}
+#surpriseOverlay img{position:absolute;width:100%;height:100%;object-fit:contain}
+#surpriseChoices{position:absolute;bottom:12%;left:0;right:0;display:flex;gap:18px;justify-content:center;z-index:2}
+#surpriseChoices button{font-size:22px;padding:16px 30px;background:#fff;color:#222;border:3px solid #bda1ff}
+#surpriseFlash{position:fixed;inset:0;z-index:100000;pointer-events:none;display:none;background:#fff}
+.cell.surpriseChanged{animation:surpriseGlow 1s ease-in-out 5!important;outline:4px solid #ffda27;z-index:2;position:relative}
+/* イベント変化マスはチェック後も最優先で赤色固定 */
+.cell.surprisePermanent,
+.cell.surprisePermanent.checked,
+.cell.surprisePermanent.last,
+.cell.surprisePermanent.reach,
+.cell.surprisePermanent.bingo-cell,
+.cell.surprisePermanent.search-hit { background: #e52232 !important; color: #fff !important; border-color: #ffb2b2 !important; }
+@keyframes surpriseGlow{0%,100%{filter:brightness(1)}50%{filter:brightness(2);box-shadow:0 0 24px 9px #ffe000}}
 </style>
 </head>
 
@@ -707,7 +745,7 @@ button:active {
   <button
     id="negiButton"
     onclick="toggleNegiMode()">
-    🥬 ネギ配達
+    🥬 ネギサーチ
   </button>
 
   <button
@@ -735,6 +773,8 @@ button:active {
     </option>
 
   </select>
+
+  <button type="button" id="negiDeliveryButton" onclick="deliverNegiRandom()" title="未チェックのステーションをランダムで1つ開く">🥬<br>ネギ配達！</button>
 
 </div>
 
@@ -1427,7 +1467,11 @@ function generateNewBoard() {
 
 
   negiMode = false;
-
+  localStorage.removeItem(SURPRISE_KEY);
+  localStorage.removeItem(SURPRISE_TARGET_KEY);
+  localStorage.removeItem(SURPRISE_COUNT_KEY);
+  localStorage.removeItem(SURPRISE_CHANGED_KEY);
+  localStorage.removeItem(NEGI_DELIVERED_KEY);
 
   renderBoard(
     selected,
@@ -1555,6 +1599,24 @@ function renderBoard(
   highlightSearch();
 
   updateNegiTargets();
+  // 旧版の単一マス保存にも対応しつつ、複数の変化マスを赤く固定する。
+  applyNegiDeliveredStyles();
+  const savedChanged = localStorage.getItem(SURPRISE_CHANGED_KEY);
+  if (savedChanged !== null) {
+    let changedIndices;
+    try {
+      const parsed = JSON.parse(savedChanged);
+      changedIndices = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (_) {
+      changedIndices = [Number(savedChanged)];
+    }
+    changedIndices.forEach(index => {
+      if (Number.isInteger(index) && index >= 0 && index < 81) {
+        const specialCell = board.querySelector('.cell[data-index="' + index + '"]');
+        if (specialCell) specialCell.classList.add("surprisePermanent");
+      }
+    });
+  }
 }
 
 
@@ -1563,6 +1625,11 @@ function renderBoard(
 ================================================== */
 
 function handleCellClick(index) {
+
+  // ネギ配達で自動オープンしたマスは、再タップしても閉じない。
+  let negiDeliveredIndices = [];
+  try { negiDeliveredIndices = JSON.parse(localStorage.getItem(NEGI_DELIVERED_KEY) || "[]"); } catch (_) {}
+  if (Array.isArray(negiDeliveredIndices) && negiDeliveredIndices.includes(index)) return;
 
   const boardData =
     getBoard();
@@ -1717,6 +1784,7 @@ function openCell(index) {
 
 
   highlightSearch();
+  surpriseProgress();
 }
 
 
@@ -1758,7 +1826,7 @@ function updateNegiDisplay() {
   else {
 
     button.textContent =
-      "🥬 ネギ配達";
+      "🥬 ネギサーチ";
 
     button.classList.remove(
       "active"
@@ -2977,6 +3045,11 @@ function resetEverything() {
   localStorage.removeItem(
     DRAWN_KEY
   );
+  localStorage.removeItem(SURPRISE_KEY);
+  localStorage.removeItem(SURPRISE_TARGET_KEY);
+  localStorage.removeItem(SURPRISE_COUNT_KEY);
+  localStorage.removeItem(SURPRISE_CHANGED_KEY);
+  localStorage.removeItem(NEGI_DELIVERED_KEY);
 
 
   negiMode = false;
@@ -3102,6 +3175,126 @@ function loadBoard() {
 }
 
 
+
+/* 第6回サプライズイベント */
+
+/* ネギ配達：未チェックのステーションを抽選して自動オープン */
+const NEGI_DELIVERED_KEY="ark3_bingo_sixth_negi_delivered_v1";
+function applyNegiDeliveredStyles(){
+  let saved=[];
+  try { saved=JSON.parse(localStorage.getItem(NEGI_DELIVERED_KEY)||"[]"); } catch(e){}
+  if(!Array.isArray(saved))saved=[];
+  for(const index of saved){
+    const cell=document.querySelector('.cell[data-index="'+index+'"]');
+    if(cell)cell.classList.add('negiDelivered');
+  }
+}
+function deliverNegiRandom(){
+  if(typeof surpriseBusy!=="undefined" && surpriseBusy)return;
+  const board=getBoard(),checked=getChecked();
+  const candidates=[];
+  board.forEach((item,index)=>{
+    if(index!==40 && !checked[index] && stationItems.includes(item))candidates.push(index);
+  });
+  if(!candidates.length){alert('未チェックのステーションパネルがありません！');return;}
+  const index=candidates[Math.floor(Math.random()*candidates.length)];
+  let saved=[];
+  try{saved=JSON.parse(localStorage.getItem(NEGI_DELIVERED_KEY)||'[]');}catch(e){}
+  if(!Array.isArray(saved))saved=[];
+  if(!saved.includes(index))saved.push(index);
+  localStorage.setItem(NEGI_DELIVERED_KEY,JSON.stringify(saved));
+  if(negiMode){negiMode=false;updateNegiDisplay();updateNegiTargets();}
+  openCell(index);
+  applyNegiDeliveredStyles();
+  const cell=document.querySelector('.cell[data-index="'+index+'"]');
+  if(cell){cell.classList.add('negiDeliveryPulse');setTimeout(()=>cell.classList.remove('negiDeliveryPulse'),3100);}
+}
+
+const SURPRISE_CHANGED_KEY = "ark3_bingo_sixth_surprise_changed_index_v1";
+const SURPRISE_KEY = "ark3_bingo_sixth_surprise_v1";
+const SURPRISE_TARGET_KEY = "ark3_bingo_sixth_surprise_target_v1";
+const SURPRISE_COUNT_KEY = "ark3_bingo_sixth_surprise_opens_v1";
+let surpriseBusy = false;
+function surpriseProgress() {
+  if (surpriseBusy || localStorage.getItem(SURPRISE_KEY)) return;
+  const count = Number(localStorage.getItem(SURPRISE_COUNT_KEY) || 0) + 1;
+  localStorage.setItem(SURPRISE_COUNT_KEY, String(count));
+  let target = Number(localStorage.getItem(SURPRISE_TARGET_KEY) || 0);
+  if (!target || target < 25 || target > 35) {
+    target = 25 + Math.floor(Math.random() * 11);
+    localStorage.setItem(SURPRISE_TARGET_KEY, String(target));
+  }
+  if (count >= target) setTimeout(startSurprise, 800);
+}
+function startSurprise() {
+  if (surpriseBusy || localStorage.getItem(SURPRISE_KEY)) return;
+  surpriseBusy = true;
+  const overlay = document.getElementById("surpriseOverlay");
+  const picture = document.getElementById("surpriseImage");
+  const choices = document.getElementById("surpriseChoices");
+  overlay.classList.add("active");
+  choices.style.display = "none";
+  picture.removeAttribute("src");
+  const flash = document.getElementById("surpriseFlash");
+  flash.style.background = "#000";
+  flash.style.display = "block";
+  setTimeout(() => {
+    picture.src = "Q.png";
+    flash.style.display = "none";
+    choices.style.display = "flex";
+  }, 800);
+}
+function chooseSurprise(yes) {
+  if (!surpriseBusy) return;
+  document.getElementById("surpriseChoices").style.display = "none";
+  document.getElementById("surpriseImage").src = yes ? "YES.png" : "NO.png";
+  localStorage.setItem(SURPRISE_KEY, yes ? "yes" : "no");
+
+  const board = getBoard();
+  const checked = getChecked();
+  const candidates = [];
+  for (let i = 0; i < 81; i++) {
+    if (i === 40 || checked[i]) continue;
+    // 「はい」: 地名・通常パネル、「いいえ」: ステーションパネルのみを対象にする。
+    if (yes ? (areaItems.includes(board[i]) || normalItems.includes(board[i])) : stationItems.includes(board[i])) {
+      candidates.push(i);
+    }
+  }
+
+  // 1〜3マスを抽選。候補が少ない場合は候補数を上限とする。
+  const changeCount = Math.min(1 + Math.floor(Math.random() * 3), candidates.length);
+  const changedIndices = [];
+  // 「はい」の変換順序: 1個目 塩浜 → 2個目 新橋 → 3個目 麻布十番
+  const punishmentStations = ["塩浜", "新橋", "麻布十番"];
+  for (let n = 0; n < changeCount; n++) {
+    const pick = Math.floor(Math.random() * candidates.length);
+    const index = candidates.splice(pick, 1)[0];
+    if (yes) {
+      board[index] = punishmentStations[n];
+    } else {
+      // 「いいえ」は各マスごとに笹塚かスタッフをランダム抽選。
+      board[index] = Math.random() < 0.5
+        ? "笹塚"
+        : staffItems[Math.floor(Math.random() * staffItems.length)];
+    }
+    changedIndices.push(index);
+  }
+
+  if (changedIndices.length) {
+    localStorage.setItem(SURPRISE_CHANGED_KEY, JSON.stringify(changedIndices));
+    localStorage.setItem(BOARD_KEY, JSON.stringify(board));
+  }
+  setTimeout(() => {
+    document.getElementById("surpriseOverlay").classList.remove("active");
+    surpriseBusy = false;
+    renderBoard(board, checked, getLastIndex());
+    changedIndices.forEach(index => {
+      const cell = document.querySelector('.cell[data-index="' + index + '"]');
+      if (cell) cell.classList.add("surpriseChanged");
+    });
+  }, 3000);
+}
+
 /* ==================================================
    起動
 ================================================== */
@@ -3120,5 +3313,14 @@ updateNegiDisplay();
 
 </script>
 
+
+<div id="surpriseOverlay" aria-live="polite">
+  <img id="surpriseImage" alt="サプライズイベント">
+  <div id="surpriseChoices">
+    <button type="button" onclick="chooseSurprise(true)">はい</button>
+    <button type="button" onclick="chooseSurprise(false)">いいえ</button>
+  </div>
+</div>
+<div id="surpriseFlash"></div>
 </body>
 </html>
