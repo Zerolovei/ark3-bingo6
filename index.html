@@ -635,10 +635,21 @@ button:active {
   width: min(99vw, 720px);
   margin: 18px auto 30px;
   display: flex;
-  justify-content: flex-end;
-  padding-right: 4px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
 }
 
+#negiCancelButton {
+  padding: 9px 14px;
+  background: rgba(166,75,25,.92);
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  border: 1px solid #ffd59e;
+  border-radius: 8px;
+  cursor: pointer;
+}
 #resetButton {
   padding:
     9px 18px;
@@ -783,6 +794,8 @@ button:active {
 <div id="board"></div>
 
 <div class="reset-area">
+
+  <button type="button" id="negiCancelButton" onclick="cancelOneNegiDelivery()">🥬 ネギキャン</button>
 
   <button
     id="resetButton"
@@ -3175,6 +3188,24 @@ function loadBoard() {
 }
 
 
+
+/* ネギキャン：配達で固定されたマスを新しい順に1個だけ元へ戻す */
+function cancelOneNegiDelivery(){
+  let saved=[];
+  try { saved=JSON.parse(localStorage.getItem(NEGI_DELIVERED_KEY)||'[]'); } catch(e){}
+  if(!Array.isArray(saved) || saved.length===0){
+    alert('安易にネギ配達ボタンは押さないこと\n（取り消せるネギ配達はありません）');
+    return;
+  }
+  const index=saved.pop();
+  localStorage.setItem(NEGI_DELIVERED_KEY,JSON.stringify(saved));
+  const checked=getChecked();
+  checked[index]=false;
+  localStorage.setItem(CHECK_KEY,JSON.stringify(checked));
+  if(getLastIndex()===index)localStorage.removeItem(LAST_KEY);
+  renderBoard(getBoard(),checked,getLastIndex());
+  alert('安易にネギ配達ボタンは押さないこと');
+}
 
 /* 第6回サプライズイベント */
 
