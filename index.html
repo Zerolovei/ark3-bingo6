@@ -3406,7 +3406,7 @@ function applyStationClearStyles(){
     if(cell)cell.classList.add("stationClearAdded");
   }
 }
-function isStationPanel(item){return stationItems.includes(item)||item==="笹塚";}
+function isStationPanel(item){return stationItems.includes(item);}
 function scheduleStationClearCheck(){
   if(stationClearBusy || surpriseBusy || localStorage.getItem(STATION_CLEAR_KEY))return;
   setTimeout(()=>{
