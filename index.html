@@ -733,6 +733,16 @@ button:active {
 .cell.surprisePermanent.search-hit { background: #e52232 !important; color: #fff !important; border-color: #ffb2b2 !important; }
 @keyframes surpriseGlow{0%,100%{filter:brightness(1)}50%{filter:brightness(2);box-shadow:0 0 24px 9px #ffe000}}
 </style>
+
+<style>
+#stationClearOverlay{position:fixed;inset:0;z-index:99998;background:#000;display:none;align-items:center;justify-content:center;z-index:99998}
+#stationClearOverlay.active{display:flex}
+#stationClearImage{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#stationClearChoices{position:absolute;bottom:11%;width:100%;display:flex;justify-content:center;gap:16px;z-index:1}
+#stationClearChoices button{padding:16px 22px;border:2px solid #fff;border-radius:22px;font-weight:900;font-size:20px;background:#fff;color:#292034}
+.cell.stationClearBlue,.cell.stationClearBlue.checked,.cell.stationClearBlue.last,.cell.stationClearBlue.bingo-cell,.cell.stationClearBlue.search-hit{background:#1887f7!important;color:#fff!important;border:2px solid #9beaff!important;box-shadow:0 0 13px #54baff!important}
+.cell.stationClearAdded,.cell.stationClearAdded.checked,.cell.stationClearAdded.last,.cell.stationClearAdded.bingo-cell{border:3px solid #ef74ff!important;box-shadow:0 0 12px #d870ff!important}
+</style>
 </head>
 
 <body>
@@ -1485,6 +1495,8 @@ function generateNewBoard() {
   localStorage.removeItem(SURPRISE_COUNT_KEY);
   localStorage.removeItem(SURPRISE_CHANGED_KEY);
   localStorage.removeItem(NEGI_DELIVERED_KEY);
+  localStorage.removeItem(LUCKY_HIT_MAP_KEY);
+  clearStationClearData();
 
   renderBoard(
     selected,
@@ -1544,7 +1556,7 @@ function renderBoard(
 
 
       if (
-        index === 40
+        index === 40 && item === "FREE"
       ) {
 
         cell.textContent =
@@ -1578,7 +1590,7 @@ function renderBoard(
 
 
       if (
-        index !== 40
+        index !== 40 || item !== "FREE"
       ) {
 
         cell.addEventListener(
@@ -1614,6 +1626,7 @@ function renderBoard(
   updateNegiTargets();
   // 旧版の単一マス保存にも対応しつつ、複数の変化マスを赤く固定する。
   applyNegiDeliveredStyles();
+  applyStationClearStyles();
   const savedChanged = localStorage.getItem(SURPRISE_CHANGED_KEY);
   if (savedChanged !== null) {
     let changedIndices;
@@ -1638,6 +1651,7 @@ function renderBoard(
 ================================================== */
 
 function handleCellClick(index) {
+  if(readStationIndices(STATION_CLEAR_BLUE_KEY).includes(index))return;
 
   // ネギ配達で自動オープンしたマスは、再タップしても閉じない。
   let negiDeliveredIndices = [];
@@ -1694,7 +1708,8 @@ function handleCellClick(index) {
   ) {
 
     checked[index] = false;
-
+    rollbackLuckyDraw(index);
+    syncSurpriseProgress();
 
     if (
       getLastIndex() ===
@@ -1738,7 +1753,7 @@ function handleCellClick(index) {
    マスを開く
 ================================================== */
 
-function openCell(index) {
+function openCell(index, source = "manual") {
 
   const checked =
     getChecked();
@@ -1752,7 +1767,7 @@ function openCell(index) {
 
   checked[index] = true;
 
-  checked[40] = true;
+  checked[40] = getBoard()[40] === "FREE" ? true : Boolean(checked[40]);
 
 
   localStorage.setItem(
@@ -1797,7 +1812,8 @@ function openCell(index) {
 
 
   highlightSearch();
-  surpriseProgress();
+  if (source !== "negiDelivery") surpriseProgress();
+  scheduleStationClearCheck();
 }
 
 
@@ -1944,6 +1960,27 @@ function getDrawnCells() {
    当たり確率 1/6
 ================================================== */
 
+const LUCKY_HIT_MAP_KEY = "ark3_bingo_sixth_lucky_hit_map_v1";
+function getLuckyHitMap(){
+  try {
+    const map=JSON.parse(localStorage.getItem(LUCKY_HIT_MAP_KEY)||"{}");
+    return map && typeof map==="object" && !Array.isArray(map) ? map : {};
+  } catch (_) {return {};}
+}
+function rollbackLuckyDraw(index){
+  const drawn=getDrawnCells();
+  if(!drawn[index])return;
+  drawn[index]=false;
+  localStorage.setItem(DRAWN_KEY,JSON.stringify(drawn));
+  const hits=getLuckyHitMap();
+  if(hits[index]===true){
+    const count=Number(localStorage.getItem(LUCKY_KEY)||0);
+    localStorage.setItem(LUCKY_KEY,String(Math.max(0,count-1)));
+    updateLuckyCounter();
+  }
+  delete hits[index];
+  localStorage.setItem(LUCKY_HIT_MAP_KEY,JSON.stringify(hits));
+}
 function runLuckyDrawOnce(index) {
 
   const drawn =
@@ -1976,7 +2013,9 @@ function runLuckyDrawOnce(index) {
 
   const hit =
     Math.random() < (1 / 6);
-
+  const hits=getLuckyHitMap();
+  hits[index]=hit;
+  localStorage.setItem(LUCKY_HIT_MAP_KEY,JSON.stringify(hits));
 
   if (!hit) {
     return;
@@ -2467,7 +2506,7 @@ function getChecked() {
   }
 
 
-  checked[40] = true;
+  checked[40] = getBoard()[40] === "FREE" ? true : Boolean(checked[40]);
 
 
   return checked;
@@ -2542,7 +2581,7 @@ function updateColors(
 
 
       if (
-        index === 40
+        index === 40 && getBoard()[40] === "FREE"
       ) {
 
         cell.classList.add(
@@ -3063,6 +3102,8 @@ function resetEverything() {
   localStorage.removeItem(SURPRISE_COUNT_KEY);
   localStorage.removeItem(SURPRISE_CHANGED_KEY);
   localStorage.removeItem(NEGI_DELIVERED_KEY);
+  localStorage.removeItem(LUCKY_HIT_MAP_KEY);
+  clearStationClearData();
 
 
   negiMode = false;
@@ -3151,7 +3192,7 @@ function loadBoard() {
       FREEは必ずON
     */
 
-    checkedData[40] = true;
+    checkedData[40] = boardData[40] === "FREE" ? true : Boolean(checkedData[40]);
 
 
     localStorage.setItem(
@@ -3201,6 +3242,8 @@ function cancelOneNegiDelivery(){
   localStorage.setItem(NEGI_DELIVERED_KEY,JSON.stringify(saved));
   const checked=getChecked();
   checked[index]=false;
+  rollbackLuckyDraw(index);
+  syncSurpriseProgress();
   localStorage.setItem(CHECK_KEY,JSON.stringify(checked));
   if(getLastIndex()===index)localStorage.removeItem(LAST_KEY);
   renderBoard(getBoard(),checked,getLastIndex());
@@ -3235,7 +3278,7 @@ function deliverNegiRandom(){
   if(!saved.includes(index))saved.push(index);
   localStorage.setItem(NEGI_DELIVERED_KEY,JSON.stringify(saved));
   if(negiMode){negiMode=false;updateNegiDisplay();updateNegiTargets();}
-  openCell(index);
+  openCell(index, "negiDelivery");
   applyNegiDeliveredStyles();
   const cell=document.querySelector('.cell[data-index="'+index+'"]');
   if(cell){cell.classList.add('negiDeliveryPulse');setTimeout(()=>cell.classList.remove('negiDeliveryPulse'),3100);}
@@ -3246,19 +3289,33 @@ const SURPRISE_KEY = "ark3_bingo_sixth_surprise_v1";
 const SURPRISE_TARGET_KEY = "ark3_bingo_sixth_surprise_target_v1";
 const SURPRISE_COUNT_KEY = "ark3_bingo_sixth_surprise_opens_v1";
 let surpriseBusy = false;
+function countManualOpenPanels(){
+  const checked=getChecked();
+  let delivered=[];
+  try {delivered=JSON.parse(localStorage.getItem(NEGI_DELIVERED_KEY)||"[]");}catch(_){}
+  const negiSet=new Set(Array.isArray(delivered)?delivered:[]);
+  readStationIndices(STATION_CLEAR_BLUE_KEY).forEach(i=>negiSet.add(i));
+  return checked.reduce((sum,on,i)=>sum+(i!==40 && on && !negiSet.has(i)?1:0),0);
+}
+function syncSurpriseProgress(){
+  if(localStorage.getItem(SURPRISE_KEY))return;
+  localStorage.setItem(SURPRISE_COUNT_KEY,String(countManualOpenPanels()));
+}
 function surpriseProgress() {
-  if (surpriseBusy || localStorage.getItem(SURPRISE_KEY)) return;
-  const count = Number(localStorage.getItem(SURPRISE_COUNT_KEY) || 0) + 1;
-  localStorage.setItem(SURPRISE_COUNT_KEY, String(count));
-  let target = Number(localStorage.getItem(SURPRISE_TARGET_KEY) || 0);
-  if (!target || target < 25 || target > 35) {
-    target = 25 + Math.floor(Math.random() * 11);
-    localStorage.setItem(SURPRISE_TARGET_KEY, String(target));
+  if (surpriseBusy || stationClearBusy || localStorage.getItem(SURPRISE_KEY)) return;
+  const count=countManualOpenPanels();
+  localStorage.setItem(SURPRISE_COUNT_KEY,String(count));
+  let target=Number(localStorage.getItem(SURPRISE_TARGET_KEY)||0);
+  if(!target || target<25 || target>35){
+    target=25+Math.floor(Math.random()*11);
+    localStorage.setItem(SURPRISE_TARGET_KEY,String(target));
   }
-  if (count >= target) setTimeout(startSurprise, 800);
+  if(count>=target) setTimeout(()=>{
+    if(countManualOpenPanels()>=target)startSurprise();
+  },800);
 }
 function startSurprise() {
-  if (surpriseBusy || localStorage.getItem(SURPRISE_KEY)) return;
+  if (surpriseBusy || stationClearBusy || localStorage.getItem(SURPRISE_KEY)) return;
   surpriseBusy = true;
   const overlay = document.getElementById("surpriseOverlay");
   const picture = document.getElementById("surpriseImage");
@@ -3319,11 +3376,91 @@ function chooseSurprise(yes) {
     document.getElementById("surpriseOverlay").classList.remove("active");
     surpriseBusy = false;
     renderBoard(board, checked, getLastIndex());
+    scheduleStationClearCheck();
     changedIndices.forEach(index => {
       const cell = document.querySelector('.cell[data-index="' + index + '"]');
       if (cell) cell.classList.add("surpriseChanged");
     });
   }, 3000);
+}
+
+
+/* ステーション全開放時の一度きりの隠しイベント */
+const STATION_CLEAR_KEY="ark3_bingo_sixth_station_clear_v1";
+const STATION_CLEAR_BLUE_KEY="ark3_bingo_sixth_station_clear_blue_v1";
+const STATION_CLEAR_ADDED_KEY="ark3_bingo_sixth_station_clear_added_v1";
+let stationClearBusy=false;
+function clearStationClearData(){
+  [STATION_CLEAR_KEY,STATION_CLEAR_BLUE_KEY,STATION_CLEAR_ADDED_KEY].forEach(k=>localStorage.removeItem(k));
+}
+function readStationIndices(key){
+  try {const v=JSON.parse(localStorage.getItem(key)||"[]");return Array.isArray(v)?v:[];}catch(_){return [];}
+}
+function applyStationClearStyles(){
+  for(const i of readStationIndices(STATION_CLEAR_BLUE_KEY)){
+    const cell=document.querySelector('.cell[data-index="'+i+'"]');
+    if(cell)cell.classList.add("stationClearBlue");
+  }
+  for(const i of readStationIndices(STATION_CLEAR_ADDED_KEY)){
+    const cell=document.querySelector('.cell[data-index="'+i+'"]');
+    if(cell)cell.classList.add("stationClearAdded");
+  }
+}
+function isStationPanel(item){return stationItems.includes(item)||item==="笹塚";}
+function scheduleStationClearCheck(){
+  if(stationClearBusy || surpriseBusy || localStorage.getItem(STATION_CLEAR_KEY))return;
+  setTimeout(()=>{
+    if(stationClearBusy || surpriseBusy || localStorage.getItem(STATION_CLEAR_KEY))return;
+    const board=getBoard(), checked=getChecked();
+    const stationIndices=[];
+    board.forEach((item,i)=>{if(isStationPanel(item))stationIndices.push(i);});
+    if(stationIndices.length && stationIndices.every(i=>checked[i]))startStationClear();
+  },1100);
+}
+function startStationClear(){
+  if(stationClearBusy || surpriseBusy || localStorage.getItem(STATION_CLEAR_KEY))return;
+  stationClearBusy=true;
+  const overlay=document.getElementById("stationClearOverlay");
+  const choices=document.getElementById("stationClearChoices");
+  const picture=document.getElementById("stationClearImage");
+  choices.style.display="none";
+  picture.removeAttribute("src");
+  overlay.classList.add("active");
+  setTimeout(()=>{picture.src="ara.png";choices.style.display="flex";},650);
+}
+function chooseStationClear(increase){
+  if(!stationClearBusy || localStorage.getItem(STATION_CLEAR_KEY))return;
+  document.getElementById("stationClearChoices").style.display="none";
+  document.getElementById("stationClearImage").src=increase?"up.png":"down.png";
+  const board=getBoard(), checked=getChecked();
+  const available=[];
+  board.forEach((item,i)=>{if(i!==40&&!checked[i])available.push(i);});
+  const picked=[];
+  for(let n=0;n<2&&available.length;n++){
+    const pos=Math.floor(Math.random()*available.length);
+    picked.push(available.splice(pos,1)[0]);
+  }
+  if(increase){
+    board[40]="塩浜";
+    checked[40]=false;
+    let drawn=[];
+    try{drawn=JSON.parse(localStorage.getItem(DRAWN_KEY)||"[]");}catch(_){}
+    if(Array.isArray(drawn)&&drawn.length===81){drawn[40]=false;localStorage.setItem(DRAWN_KEY,JSON.stringify(drawn));}
+    for(const i of picked)board[i]=stationItems[Math.floor(Math.random()*stationItems.length)];
+    localStorage.setItem(STATION_CLEAR_ADDED_KEY,JSON.stringify([40,...picked]));
+  }else{
+    for(const i of picked)checked[i]=true;
+    localStorage.setItem(STATION_CLEAR_BLUE_KEY,JSON.stringify(picked));
+    // 自動開封は通常の当たり抽選・手動イベントカウントの対象外
+  }
+  localStorage.setItem(STATION_CLEAR_KEY,increase?"up":"down");
+  localStorage.setItem(BOARD_KEY,JSON.stringify(board));
+  localStorage.setItem(CHECK_KEY,JSON.stringify(checked));
+  setTimeout(()=>{
+    document.getElementById("stationClearOverlay").classList.remove("active");
+    stationClearBusy=false;
+    renderBoard(board,checked,getLastIndex());
+  },3000);
 }
 
 /* ==================================================
@@ -3333,6 +3470,7 @@ function chooseSurprise(yes) {
 buildSearchMenu();
 
 loadBoard();
+scheduleStationClearCheck();
 
 updateStartDisplay();
 
@@ -3353,5 +3491,13 @@ updateNegiDisplay();
   </div>
 </div>
 <div id="surpriseFlash"></div>
+
+<div id="stationClearOverlay" aria-live="polite">
+  <img id="stationClearImage" alt="ステーション制覇イベント">
+  <div id="stationClearChoices">
+    <button type="button" onclick="chooseStationClear(true)">増やす</button>
+    <button type="button" onclick="chooseStationClear(false)">増やさない</button>
+  </div>
+</div>
 </body>
 </html>
